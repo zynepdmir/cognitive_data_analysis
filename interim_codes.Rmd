@@ -1,0 +1,573 @@
+---
+title: "412 Interim Report"
+author: "Zeynep Demir"
+date: "2025-05-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### 1.	A brief statement of the aim of the project 
+This analysis mainly aim to study the key influences on human memory behaviour. Upon a sample of 80k people, we will seek any relationship between daily routines, diets and many other factors with memory. In fact, there are lots of information about which daily habits are better for a good memory, such as whether coffee intake increases short term memory, or long screen hours cause worse memory, etc. In this analyses, we will discuss and examine some of these rumors.
+
+#### 2.	Source of the data and variables, including which is the dependent variable 
+The dataset used in this analysis is available on Kaggle, titled with Human Cognitive Performance Analysis. Follow this link to reach the dataset:
+ https://www.kaggle.com/datasets/samxsam/human-cognitive-performance-analysis/data
+The dependent variable of the analyses is memory test score, a score out of 100.
+
+#### 3. Data cleaning and tidying & EDA
+
+```{r}
+cog_per <- read.csv("C:/Users/zynep/OneDrive/Desktop/stat412/project/human_cognitive_performance.csv")
+
+dim(cog_per)
+
+```
+
+```{r}
+set.seed(412)
+sample_index <- sample(1:nrow(cog_per),3000, replace=FALSE)
+cog_per <- cog_per[sample_index, ]
+```
+
+
+```{r}
+summary(cog_per)
+```
+
+
+```{r}
+str(cog_per)
+```
+
+
+```{r}
+cog_per <- subset(cog_per, select = -c(User_ID, Cognitive_Score, AI_Predicted_Score))
+cat_vars <- c("Gender", "Diet_Type", "Exercise_Frequency")
+cog_per[cat_vars] <- lapply(cog_per[cat_vars], as.factor)
+
+num_vars <- c("Age", "Sleep_Duration", "Stress_Level", "Daily_Screen_Time",
+              "Caffeine_Intake", "Reaction_Time", "Memory_Test_Score")
+
+cog_per[num_vars] <- lapply(cog_per[num_vars], as.numeric)
+
+cog_per$Stress_Level <- factor(cog_per$Stress_Level, 
+                        levels = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10),   
+                        ordered = TRUE)
+
+cog_per$Exercise_Frequency <- factor(cog_per$Exercise_Frequency, 
+                        levels = c("Low", "Medium", "High"),  
+                        ordered = TRUE)
+```
+
+
+```{r}
+# add missingness
+library(missMethods)
+selected_vars = c("Reaction_Time", "Caffeine_Intake")
+cog_per = delete_MCAR(ds = cog_per, p = 0.05, cols_mis = selected_vars)
+sum(is.na(cog_per))/nrow(cog_per)
+
+```
+
+
+#### Research Questions
+```{r}
+# 1. How do the gender and diet type distributed in the dataset?
+library(ggplot2)
+library(ggmosaic)
+
+ggplot(data = cog_per) +
+  geom_mosaic(aes(weight = 1, x = product(Diet_Type), fill = Gender)) +
+  labs(title = "Mosaic Plot of Diet Type vs Gender",
+       x = "Diet Type",
+       y = "Gender") +
+  theme_minimal()
+
+```
+
+
+
+```{r}
+# 2. What do the distributions of sleep duration and daily screen time look like?
+par(mfrow = c(2, 2))
+
+plot(density(cog_per$Sleep_Duration), main = "Density of Sleep Duration",
+     xlab = "Sleep Duration", col = "darkred", lwd = 2)
+
+plot(density(cog_per$Daily_Screen_Time), main = "Density of Daily Screen Time",
+     xlab = "Dily Screen Time", col = "darkgreen", lwd = 2)
+
+hist(cog_per$Sleep_Duration, main = "Histogram of Sleep Duration",
+     xlab = "Sleep Duration", col = "darkred", lwd = 2)
+
+hist(cog_per$Daily_Screen_Time, main = "Histogram of Daily Screen Time",
+     xlab = "Daily Screen Time", col = "darkgreen", lwd = 2)
+
+```
+
+
+It appears that both Sleep hours and daily screen time are distributed uniformly.
+
+```{r}
+# 3. What is the missingness pattern in the Caffeine_Intake and Reaction_Time?
+library(naniar)
+miss_var_summary(cog_per)
+```
+
+
+```{r}
+vis_miss(cog_per)
+```
+
+
+```{r}
+cog_per_shadow <- cog_per %>%
+  bind_shadow(only_miss = TRUE)
+
+ggplot(cog_per_shadow, aes(x = Caffeine_Intake_NA, y = Memory_Test_Score, fill = Caffeine_Intake_NA)) +
+  geom_boxplot() +
+  labs(title = "Memory Score by Caffeine Intake Missingness") +
+  theme_minimal()
+```
+
+
+```{r}
+ggplot(cog_per_shadow, aes(x = Reaction_Time_NA, y = Memory_Test_Score, fill = Reaction_Time_NA)) +
+  geom_boxplot() +
+  labs(title = "Memory Score by Reaction Time Missingness") +
+  theme_minimal()
+```
+
+The distribution of memory test score is almost same for missing and non-missing caffeine intake observations. This is also the case for reaction time missingness effect on memory test score.
+
+
+```{r}
+# 4. Is the mean memory score different for males and females? violinplot
+ggplot(cog_per, aes(x = Gender, y = Memory_Test_Score, fill = Gender)) +
+  geom_violin(trim = FALSE) +
+  scale_fill_manual(values = c("Female" = "#E76449", "Male" = "#1C6AA8", "Other" = "#FFFF37")) +
+  geom_boxplot(width = 0.1, fill = "white") +
+  labs(title = "Memory Test Score by Gender",
+    x = "Gender",
+    y = "Memory Test Score") +
+  theme_minimal()
+```
+
+With this violin plot it can be seen memory test score is not significantly different for males and females, but other gender types' scores are distributed seemingly different. 
+
+```{r}
+# 5. Are vegans who don't exercise much have less memory test score than others?
+cog_per %>%
+  ggplot(aes(x = Exercise_Frequency, y = Memory_Test_Score, fill = Diet_Type)) +
+  geom_boxplot(position = position_dodge(0.8)) +
+  scale_fill_manual(values = c("Non-Vegetarian" = "#E44144", "Vegan" = "#16A73F", "Vegetarian" = "#9A68A4")) +
+  labs(
+    title = "Memory Test Score by Exercise and Diet",
+    x = "Exercise",
+    y = "Memory Test Score",
+    fill = "Diet"
+  ) +
+  theme_minimal()
+```
+
+The median memory test score is higher in vegans among all exercise groups, and non-vegetarians have higher median memory test score than vegetarians. The difference between median score of vegans and other two diet types is the most seen in low exercise group.
+
+
+#### 4. Exploration of Missingness and Imputation 
+
+```{r, echo = FALSE}
+library(naniar)
+miss_var_summary(cog_per)
+
+# Check if there's secret missingness (na, Na etc.)
+unique(cog_per$Age)
+unique(cog_per$Gender)
+unique(round(cog_per$Sleep_Duration),0)
+unique(cog_per$Stress_Level)
+unique(cog_per$Diet_Type)
+unique(cog_per$Daily_Screen_Time)
+unique(cog_per$Exercise_Frequency)
+unique(cog_per$Caffeine_Intake)
+unique(round(cog_per$Reaction_Time),0)
+```
+
+Only two variables have missingness: Caffeine_Intake and Exercise_Frequency each have 150 missing value.
+
+```{r, echo = FALSE}
+vis_miss(cog_per)
+# arrange by different variables to explore the missingness structure
+library(dplyr)
+cog_per %>% arrange(Age) %>% vis_miss()
+cog_per %>% arrange(Gender) %>% vis_miss()
+cog_per %>% arrange(Sleep_Duration) %>% vis_miss()
+cog_per %>% arrange(Stress_Level) %>% vis_miss()
+cog_per %>% arrange(Diet_Type) %>% vis_miss()
+cog_per %>% arrange(Daily_Screen_Time) %>% vis_miss()
+cog_per %>% arrange(Exercise_Frequency) %>% vis_miss()
+```
+
+
+```{r}
+cog_per %>%
+  bind_shadow(only_miss = TRUE) %>%
+  group_by(Caffeine_Intake_NA) %>% 
+  summarize(score_mean = mean(Memory_Test_Score), 
+            score_sd = sd(Memory_Test_Score),
+            n_obs = n())
+```
+
+
+```{r}
+cog_per %>%
+  bind_shadow(only_miss = TRUE) %>%
+  group_by(Reaction_Time_NA) %>% 
+  summarize(score_mean = mean(Memory_Test_Score), 
+            score_sd = sd(Memory_Test_Score),
+            n_obs = n())
+```
+
+
+```{r}
+library(naniar)
+library(ggplot2)
+cog_per %>%
+  bind_shadow(only_miss = TRUE) %>%
+  ggplot(aes(x = Memory_Test_Score,
+             color = Caffeine_Intake_NA)) + 
+  geom_density() + 
+  facet_wrap(~Reaction_Time_NA) +
+  theme_minimal()
+```
+
+
+```{r}
+# missingness imputation
+# mean imputation
+cog_per_imp_mean <- bind_shadow(cog_per, only_miss = TRUE) %>% 
+  impute_mean_all() %>% 
+  add_label_shadow()
+```
+
+
+```{r}
+# linear model imputation. explain the missingness of caffeine intake and reaction time by sleep duration and daily screen time 
+library(simputation)
+cog_per$Caffeine_Intake <- as.numeric(cog_per$Caffeine_Intake)
+cog_per_imp_lm <- cog_per %>% 
+    bind_shadow(only_miss = TRUE) %>%
+    impute_lm(Caffeine_Intake ~ Sleep_Duration + Daily_Screen_Time) %>% 
+    impute_lm(Reaction_Time ~Sleep_Duration + Daily_Screen_Time) %>%
+    add_label_shadow()
+
+# full linear model imputation. explain the missingness of caffeine intake and reaction time by all the other numerical variables 
+
+
+cog_per_imp_lm_full <- cog_per %>% 
+    bind_shadow(only_miss = TRUE) %>%
+    impute_lm(Caffeine_Intake ~ Age + Gender + Sleep_Duration + Stress_Level + Diet_Type + Daily_Screen_Time + Exercise_Frequency + Memory_Test_Score) %>% 
+    impute_lm(Reaction_Time ~Age + Gender + Sleep_Duration + Stress_Level + Diet_Type + Daily_Screen_Time + Exercise_Frequency + Memory_Test_Score) %>%
+    add_label_shadow()
+
+# show the three models together
+bound_models <- bind_rows(mean = cog_per_imp_mean,
+                          lm = cog_per_imp_lm,
+                          lm_full = cog_per_imp_lm_full,
+                          .id = "imp_model")
+bound_models %>%
+  ggplot(aes(x = Caffeine_Intake,
+             y = Reaction_Time,
+             color = any_missing)) + 
+  geom_point() + 
+  facet_wrap(~imp_model)
+```
+
+
+```{r}
+# full linear model is the best imputation model because the other two models are too generalizing
+
+cog_per_imp <- cog_per %>% 
+    bind_shadow(only_miss = TRUE) %>%
+    impute_lm(Caffeine_Intake ~ Sleep_Duration + Daily_Screen_Time + Age + Stress_Level ) %>% 
+    impute_lm(Reaction_Time ~Sleep_Duration + Daily_Screen_Time + Age + Stress_Level ) %>%
+    add_label_shadow() %>%
+  select(-ends_with("_NA"))
+
+str(cog_per_imp)
+
+```
+
+
+```{r}
+# 6. How are the numerical variables related with each other, with imputed values?
+library(corrplot)
+num_vars <- cog_per_imp[, sapply(cog_per_imp, is.numeric)]
+corr_matrix <- cor(num_vars)
+
+corrplot(corr_matrix, method = "color", 
+         addCoef.col = "black",  
+         tl.col = "black",        
+         number.cex = 0.8)
+```
+It can be seen that the numerical variables have no linear correlation with each other.
+
+
+#### 5. Feature Engineering
+
+```{r}
+library(dplyr)
+
+cog_per_imp <- cog_per_imp %>%
+  mutate(Stress_x_Screen = as.numeric(Stress_Level) * Daily_Screen_Time,
+    Sleep_x_Exercise = Sleep_Duration * as.numeric(Exercise_Frequency))
+
+cog_per_imp <- cog_per_imp %>%
+  mutate(log_Caffeine = log(Caffeine_Intake + 1),
+         sqrt_Screen = sqrt(Daily_Screen_Time))
+
+cog_per_imp <- cog_per_imp %>%
+  mutate(Age_Group = cut(Age, breaks = c(17, 31, 45, 60),
+                         labels = c("Young", "Adult", "Old")))
+
+cog_per_imp <- cog_per_imp %>%
+  mutate(health_score = scale(Sleep_Duration) - scale(Caffeine_Intake) + scale(as.numeric(Exercise_Frequency)))
+
+library(fastDummies)
+cog_per_imp <- dummy_cols(cog_per_imp, select_columns = c("Diet_Type", "Gender"), remove_first_dummy = TRUE)
+
+cog_per_imp <- cog_per_imp %>%
+  mutate(Age.s = scale(Age),
+         Sleep_Duration.s = scale(Sleep_Duration),
+         Daily_Screen_Time.s = scale(Daily_Screen_Time),
+         Caffeine_Intake.s = scale(Caffeine_Intake),
+         Reaction_Time.s = scale(Reaction_Time),
+         Stress_x_Screen.s = scale(Stress_x_Screen),
+         Sleep_x_Exercise.s = scale(Sleep_x_Exercise))
+
+cog_per_imp$Sleep_Level <- cut(cog_per_imp$Sleep_Duration,
+                               breaks = c(0, 5, 8, 10),
+                               labels =  c("low", "medium", "high"),
+                               include.lowest = TRUE)
+
+cog_per_imp$Sleep_Level <- factor(cog_per_imp$Sleep_Level, 
+                                               levels = c('low', 'medium', 'high'), 
+                                               ordered = TRUE)
+
+table(cog_per_imp$Sleep_Level)
+
+```
+
+
+#### 6. Confirmatory Data Analysis
+Which variables have affect on mean memory test score? Let's discover this for all variables one by one.
+
+```{r}
+# age
+cor.test(cog_per_imp$Age.s, cog_per_imp$Memory_Test_Score, method = "spearman")
+```
+
+
+```{r}
+# gender
+kruskal.test(Memory_Test_Score ~ Gender, data = cog_per_imp) 
+# not significant but shouldn't be ignored
+```
+
+
+```{r}
+# Sleep_Duration
+cor.test(cog_per_imp$Sleep_Duration.s, cog_per_imp$Memory_Test_Score, method = "spearman")
+```
+
+
+```{r}
+# stress level
+kruskal.test(Memory_Test_Score ~ Stress_Level, data = cog_per_imp)
+```
+
+
+```{r}
+# Diet type
+kruskal.test(Memory_Test_Score ~ Diet_Type, data = cog_per_imp)
+```
+
+
+```{r}
+# daily screen time
+cor.test(cog_per_imp$Daily_Screen_Time.s, cog_per_imp$Memory_Test_Score, method = "spearman")
+```
+
+
+```{r}
+# exercise frequency
+kruskal.test(Memory_Test_Score ~ Exercise_Frequency, data = cog_per_imp)
+```
+
+
+```{r}
+# caffeine intake
+cor.test(cog_per_imp$Caffeine_Intake.s, cog_per_imp$Memory_Test_Score, method = "spearman")
+```
+
+
+```{r}
+# reaction time
+cor.test(cog_per_imp$Reaction_Time.s, cog_per_imp$Memory_Test_Score, method = "spearman")
+```
+
+
+```{r}
+#health score
+cor.test(cog_per_imp$health_score, cog_per_imp$Memory_Test_Score, method = "spearman")
+```
+
+
+```{r}
+# log caffeine
+cor.test(cog_per_imp$log_Caffeine, cog_per_imp$Memory_Test_Score, method = "spearman")
+```
+
+
+```{r}
+# square root screen
+cor.test(cog_per_imp$sqrt_Screen, cog_per_imp$Memory_Test_Score, method = "spearman")
+```
+
+
+```{r}
+# age group
+kruskal.test(Memory_Test_Score ~ Age_Group, data = cog_per_imp)
+
+```
+
+According to the test results and p-values, only diet type is significant in explaining memory test score. 
+
+```{r}
+library(FSA)
+dunnTest(Memory_Test_Score ~ Diet_Type, data = cog_per_imp, method = "bonferroni")
+```
+
+We can reject the null hypothesis that the mean memory test score is the same for vegan and vegetarian groups. But vegan & non-vegetarian and vegetarian & non-vegetarian groups' mean memory test score don't differ significantly. Next step is finding if vegans' mean score is higher than vegetarians' or vice versa.
+
+```{r}
+library(dplyr)
+cog_per_imp %>%
+  group_by(Diet_Type) %>%
+  summarise(mean_score = mean(Memory_Test_Score), .groups = "drop")
+```
+
+Vegans' mean memory test score is higher than vegetarians' score. Now we can test interaction effects of diet type and other variables.
+
+```{r}
+library(ARTool)
+ # art is for categorical variables only
+model_diet_x_gender <- art(Memory_Test_Score ~ Diet_Type * Gender, data = cog_per_imp)
+anova(model_diet_x_gender)
+```
+
+Diet type and gender interaction is not significant.
+
+```{r}
+glm_diet_sleep <- glm(Memory_Test_Score ~ Diet_Type * Sleep_Duration, data = cog_per_imp)
+summary(glm_diet_sleep)
+```
+
+Interaction is significant: Among vegetarians, sleep duration has significant effect on the mean memory test score. 
+
+```{r}
+library(ggplot2)
+
+ggplot(cog_per_imp, aes(x = Sleep_Duration, y = Memory_Test_Score, color = Diet_Type)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Diet Type and Sleep Duration Interaction",
+       x = "Sleep Duration",
+       y = "Memory Test Score") +
+  theme_minimal()
+```
+
+Diet type and sleep duration interaction can be seen in the above interaction plot.
+
+```{r}
+glm_diet_screen <- glm(Memory_Test_Score ~ Diet_Type * Daily_Screen_Time, data = cog_per_imp)
+summary(glm_diet_screen)
+# no significant interaction
+```
+
+
+```{r}
+glm_diet_caffeine <- glm(Memory_Test_Score ~ Diet_Type * Caffeine_Intake, data = cog_per_imp)
+summary(glm_diet_caffeine)
+# no significant interaction
+```
+
+
+```{r}
+glm_diet_reaction <- glm(Memory_Test_Score ~ Diet_Type * Reaction_Time, data = cog_per_imp)
+summary(glm_diet_reaction)
+# no significant interaction
+```
+
+
+```{r}
+model_final <- glm(Memory_Test_Score ~ Diet_Type * Sleep_Duration + Gender * Sleep_Duration + Gender, data = cog_per_imp)
+summary(model_final)
+```
+
+This model is better than the other two models, but still not good enough since AIC is too high and not all parameters are significant.
+
+
+#### 7. Cross Validation
+```{r}
+library(caret)
+
+set.seed(412)
+train_control <- trainControl(method = "cv",number = 10)
+
+fit3 <- train(Memory_Test_Score ~ Diet_Type * Sleep_Duration + Gender * Sleep_Duration + Gender, data = cog_per_imp, method = "glm", trControl = train_control)
+```
+
+
+#### 8. Validating the Model Assumptions
+```{r}
+model_final <- glm(Memory_Test_Score ~ Diet_Type * Sleep_Duration + Gender * Sleep_Duration + Gender, data = cog_per_imp)
+summary(model_final)
+```
+
+
+```{r}
+# independence of the residuals assumption
+library(car)
+durbinWatsonTest(model_final)
+```
+
+the residuals are not autocorrelated
+
+```{r}
+# multicolinearity assumption
+vif(model_final)
+```
+
+diet type and gender variables are risky in terms of multicolinearity
+
+```{r}
+#constant variance assumption
+library(lmtest)
+bptest(model_final)
+```
+
+there is no heteroscedasticity problem
+
+The summary of the model shows that the AIC is too high, implying that the model is not good. When we check the assumptions of the GLM, we see that the residuals are not autocorrelated and the variance is constant, but there might be a multicolinearity problem.
+
+On the other hand, the model summary shows that being vegetarian significantly affects the memory test score, as seen in the 5th research question's grouped boxplot.
+
+Gender is also affecting the outcome but its effect is not as significant as diet type. Eventhough sleep duration effect is not significant solely, its interaction with diet type is significant. Similarly, gender and sleep duration interaction is significant, too.
+
+```{r}
+print(fit3)
+```
+
+The Root Mean Square Error and Mean Absolute Error is too high whereas Rsquared is too low. This means that the predictions are far from the actuals and the model couldn't explain much of the memory test score.

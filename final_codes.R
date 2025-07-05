@@ -53,6 +53,8 @@ colnames(data) <- c("Age", "Gen", "SD", "SL",
                     "DT", "DST", "EF", "CI", "RT", "MTS", "CS")
 
 #### add missingness ####
+# the data originally has no NA's so I add 10% of missingness 
+# into the variables Reaction_Time and Caffeine_Intake
 selected_vars = c("RT", "CI")
 data = delete_MCAR(ds = data, p = 0.05, cols_mis = selected_vars)
 sum(is.na(data))/nrow(data)
@@ -60,7 +62,7 @@ sum(is.na(data))/nrow(data)
 summary(data)
 str(data)
 
-#### explanatory data anaysis ####
+#### exploratory data anaysis ####
 # research question 1: Are people who don't exercise much have less cognitive score than others?
 data %>%
   ggplot(aes(x = EF, y = CS)) +
@@ -105,7 +107,6 @@ data %>%
 
 # cognitive score's distribution is left skewed, might have some outliers on 100 scores.
 
-chart.Correlation(data[,c(1,3,6,7,8,9,10,11)], histogram = TRUE, method = "pearson")
 
 # scatter plot matrix
 set.seed(412)
@@ -180,7 +181,7 @@ corrplot(corr_matrix, method = "color",
          number.cex = 0.8)
 
 
-# Confirmatory data analysis
+#### confirmatory data analysis ####
 # 1. test if exercise frequency affects the mean outcome
 kruskal.test(CS ~ EF, data = imputed_data) # EF groups make difference
 pairwise.wilcox.test(data$CS, data$EF, p.adjust.method = "bonferroni") 
@@ -199,7 +200,8 @@ library(nortest)
 library(moments)
 ad.test(imputed_data$CS)
 skewness(imputed_data$CS)
-  # 3. multicolinearity check
+
+# 3. multicolinearity check
 model <- lm(CS ~ Age + SD + DST + RT + CI + MTS, data = imputed_data)
 vif(model)
 # there is no multicollinearity problem.
@@ -351,7 +353,7 @@ tss.train5 <- sum((train_set1$CS - mean(train_set1$CS))^2)
 r_squared.train5 <- 1 - rss.train5 / tss.train5
 
 ##### comparison #####
-results_df <- data.frame(
+results_df_reg <- data.frame(
   Model = paste0("Model", 1:5),
   
   MSE_Train = c(MSE.train1, MSE.train2, MSE.train3, MSE.train4, MSE.train5),
@@ -365,7 +367,7 @@ results_df <- data.frame(
   R2_Test   = c(r_squared.test1, r_squared.test2, r_squared.lm3, r_squared.test4, r_squared.test5)
 )
 
-print(results_df)
+print(results_df_reg)
 
 best_rmse_test_model <- results_df[which.min(results_df$RMSE_Test), ] #2
 best_r2_test_model <- results_df[which.max(results_df$R2_Test), ] #2
@@ -378,13 +380,15 @@ best_mse_train_model <- results_df[which.min(results_df$MSE_Train), ] #2
 best_mae_train_model <- results_df[which.max(results_df$MAE_Train), ] #5
 
 model2_df <- data.frame(
-  Base = c("Train", "Test"),
+  model = c("GLR", "GLR"),
+  Set = c("Train", "Test"),
   MSE = c(MSE.train2, MSE.test2),
   RMSE = c(RMSE.train2, RMSE.test2),
   MAE = c(MAE.train2, MAE.test2),
-  `R-squared` = c(r_squared.train2, r_squared.test2)
+  `R_squared` = c(r_squared.train2, r_squared.test2)
 )
 
+# the best regression model is model2, the model with interaction terms
 
 ##### visuals #####
 
@@ -529,6 +533,7 @@ MAE_test_ANN <- mean(abs(y_test2 - pred_test_ANN))
 R2_test_ANN <- 1 - sum((y_test2 - pred_test_ANN)^2) / sum((y_test2 - mean(y_test2))^2)
 
 results_df_ANN <- data.frame(
+  model = c("ANN", "ANN"),
   Set = c("Train", "Test"),
   MSE = c(MSE_train_ANN, MSE_test_ANN),
   RMSE = c(RMSE_train_ANN, RMSE_test_ANN),
@@ -564,7 +569,7 @@ params <- list(
   colsample_bytree = 0.8
 )
 
-##### Cross-validation #####
+##### cross validation #####
 set.seed(412)
 cv_model <- xgb.cv(
   params = params,
@@ -584,8 +589,8 @@ final_model <- xgboost(
 )
 
 # Prepare test data
-X_test_matrix <- model.matrix(CS ~ . -1, data = test_set3)
-y_test_vector <- test_set$CS
+X_test_matrix <- model.matrix(CS ~ . -1, data = test_set2)
+y_test_vector <- test_set2$CS
 
 ##### Predictions #####
 pred_train <- predict(final_model, newdata = X_train_matrix)
@@ -605,6 +610,7 @@ r2_test <- 1 - sum((y_test_vector - pred_test)^2) / sum((y_test_vector - mean(y_
 
 ##### Summary table #####
 results_df_xgb <- data.frame(
+  model = c("XGB", "XGB"),
   Set = c("Train", "Test"),
   MSE = c(mse_train, mse_test),
   RMSE = c(rmse_train, rmse_test),
@@ -617,9 +623,10 @@ print(results_df_xgb)
 #visuals
 xgb.importance(model = final_model) %>%
   xgb.plot.importance(top_n = 10)
+# reaction has the most importance in the XGBoost model
 
 #### SVM model ####
-# prepare the data
+##### prepare the data #####
 # sampling because svm do not work with large data
 set.seed(412)
 sample_index <- sample(1:nrow(treated_data), 10000)
@@ -645,15 +652,15 @@ y_test_svm <- test_set3$CS
 
 train_df <- data.frame(CS = y_train_svm, X_train_svm)
 
-# hyperparameter tuning for cost and epsilon
+# hyperparameter tuning for cost and epsilon parameters
 ctrl_svm <- trainControl(method = "cv", number = 5)
 tuneGrid = data.frame(C = c(0.1, 1, 10, 100))
 
-# parallel processing
+# parallel processing (because svm took so much time to run)
 cl <- makePSOCKcluster(4)  
 registerDoParallel(cl)
 
-# Train SVM model
+##### train SVM model #####
 set.seed(412)
 svm_model <- train(
   CS ~ .,
@@ -670,15 +677,16 @@ stopCluster(cl)
 print(svm_model)
 svm_model$bestTune
 
-# Predict on test set
+##### Predict on test set ####
 pred_test <- predict(svm_model, newdata = test_set3)
 pred_train <- predict(svm_model, newdata = train_set3)
 
 pred_test <- pmin(pmax(pred_test, 0), 100)
 pred_train <- pmin(pmax(pred_train, 0), 100)
 
-# Evaluate performance
+##### Evaluate performance #####
 results_df_svm <- data.frame(
+  model = c("SVM", "SVM"),
   Set = c("Train", "Test"),
   MSE = c(mean((train_set3$CS - pred_train)^2), mean((test_set3$CS - pred_test)^2)),
   RMSE = c(sqrt(mean((train_set3$CS - pred_train)^2)), sqrt(mean((test_set3$CS - pred_test)^2))),
@@ -690,7 +698,7 @@ results_df_svm <- data.frame(
 )
 print(results_df_svm)
 
-# Plot
+##### Plot #####
 plot_df <- data.frame(Actual = test_set3$CS, Predicted = pred_test)
 sample_idx <- sample(1:nrow(plot_df), size = min(500, nrow(plot_df)))
 
@@ -702,7 +710,7 @@ ggplot(plot_df[sample_idx, ], aes(x = Actual, y = Predicted)) +
   labs(title = "SVM Predictions vs Actual (Test Set)", x = "Actual CS", y = "Predicted CS")
 
 #### Random Forest model ####
-# prepare the datasets
+##### prepare the datasets #####
 # I will sample again because the original dataset training took so much time
 # I will also apply parallel processing
 set.seed(412)
@@ -728,7 +736,7 @@ y_test <- test_set3$CS
 train_data <- data.frame(CS = y_train, X_train)
 test_data <- data.frame(CS = y_test, X_test)
 
-# Cross-validation setup
+##### cross validation #####
 ctrl_rf <- trainControl(method = "cv", number = 2)
 
 # Grid for mtry 
@@ -753,15 +761,16 @@ rf_model <- caret::train(
 
 stopCluster(cl)
 
-# Predictions
+##### Predictions #####
 pred_train <- predict(rf_model, newdata = train_data)
 pred_test <- predict(rf_model, newdata = test_data)
 
-# Clip predictions
+# clip predictions
 pred_test <- pmin(pmax(pred_test, 0), 100)
 
-# Evaluate performance
+##### evaluate performance #####
 results_df_rf <- data.frame(
+  model = c("RF", "RF"),
   Set = c("Train", "Test"),
   MSE = c(mean((train_set3$CS - pred_train)^2), mean((test_set3$CS - pred_test)^2)),
   RMSE = c(sqrt(mean((train_set3$CS - pred_train)^2)), sqrt(mean((test_set3$CS - pred_test)^2))),
@@ -773,9 +782,34 @@ results_df_rf <- data.frame(
 )
 print(results_df_rf)
 
-# Variable importance
+##### variable importance #####
 importance_vals <- varImp(rf_model)
+# random forest model's most important variable is Reaction_Time, too
 
-# Plot
+##### plot #####
 plot(importance_vals)
 
+#### compare all models ####
+all_models_df <- rbind(model2_df, results_df_ANN, results_df_rf, results_df_svm, results_df_xgb)
+
+# best model wrt test MSE
+test_set_all <- all_models_df[all_models_df$Set == "Test", ]
+best_mse_test <- test_set_all[which.min(test_set_all$MSE), ]
+best_mse_test
+
+# best model wrt train MSE
+train_set_all <- all_models_df[all_models_df$Set == "Train", ]
+best_mse_train <- train_set_all[which.min(train_set_all$MSE), ]
+best_mse_train
+
+# best model wrt test R_squared
+best_rsq_test <- test_set_all[which.max(test_set_all$R_squared), ]
+best_rsq_test
+
+# best model wrt train R_squared
+best_rsq_train <- train_set_all[which.max(train_set_all$R_squared), ]
+best_rsq_train
+
+# random forest is the best model if we evaluate the train accuracy,
+# but when we consider the test accuracy, artificial neural networks has the best 
+# performance. 
